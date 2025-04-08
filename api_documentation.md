@@ -629,7 +629,7 @@ Endpoints for the health assistant chatbot.
   ```json
   {
     "message": "What are the symptoms of diabetes?",
-    "conversationId": "1623456789"  // Optional
+    "conversationId": "60d21b4667d0d8992e610c92"  // Optional, for continuing an existing conversation
   }
   ```
 - **Response (200)**:
@@ -638,11 +638,128 @@ Endpoints for the health assistant chatbot.
     "success": true,
     "data": {
       "message": "Diabetes symptoms may include increased thirst, frequent urination, extreme hunger, unexplained weight loss, fatigue, irritability, blurred vision, slow-healing sores, and frequent infections. It's important to consult with a healthcare professional if you experience these symptoms as early diagnosis and treatment can prevent complications.",
-      "conversationId": "1623456789"
+      "conversationId": "60d21b4667d0d8992e610c92"
     }
   }
   ```
 - **Error Responses**:
+  - `401`: Not authenticated
+  - `500`: Server error
+
+### Get Conversation History
+
+- **URL**: `/api/chatbot/conversations`
+- **Method**: `GET`
+- **Authentication**: Required
+- **Description**: Get a list of the user's chat conversations
+- **Response (200)**:
+  ```json
+  {
+    "success": true,
+    "conversations": [
+      {
+        "_id": "60d21b4667d0d8992e610c92",
+        "title": "What are the symptoms of diabetes?",
+        "createdAt": "2023-06-15T14:30:00.000Z",
+        "updatedAt": "2023-06-15T14:35:00.000Z"
+      },
+      {
+        "_id": "60d21b4667d0d8992e610c93",
+        "title": "How to manage hypertension?",
+        "createdAt": "2023-06-14T10:15:00.000Z",
+        "updatedAt": "2023-06-14T10:20:00.000Z"
+      }
+      // More conversations...
+    ]
+  }
+  ```
+- **Error Responses**:
+  - `401`: Not authenticated
+  - `500`: Server error
+
+### Get Specific Conversation
+
+- **URL**: `/api/chatbot/conversations/:id`
+- **Method**: `GET`
+- **Authentication**: Required
+- **Description**: Get details of a specific conversation including all messages
+- **URL Parameters**: `id` - Conversation ID
+- **Response (200)**:
+  ```json
+  {
+    "success": true,
+    "conversation": {
+      "_id": "60d21b4667d0d8992e610c92",
+      "title": "What are the symptoms of diabetes?",
+      "userId": "60d21b4667d0d8992e610c86",
+      "messages": [
+        {
+          "role": "user",
+          "content": "What are the symptoms of diabetes?",
+          "timestamp": "2023-06-15T14:30:00.000Z"
+        },
+        {
+          "role": "assistant",
+          "content": "Diabetes symptoms may include increased thirst, frequent urination, extreme hunger, unexplained weight loss, fatigue, irritability, blurred vision, slow-healing sores, and frequent infections. It's important to consult with a healthcare professional if you experience these symptoms as early diagnosis and treatment can prevent complications.",
+          "timestamp": "2023-06-15T14:30:05.000Z"
+        },
+        // More messages in the conversation...
+      ],
+      "createdAt": "2023-06-15T14:30:00.000Z",
+      "updatedAt": "2023-06-15T14:35:00.000Z"
+    }
+  }
+  ```
+- **Error Responses**:
+  - `401`: Not authenticated
+  - `404`: Conversation not found
+  - `500`: Server error
+
+### Delete Conversation
+
+- **URL**: `/api/chatbot/conversations/:id`
+- **Method**: `DELETE`
+- **Authentication**: Required
+- **Description**: Delete a specific conversation (soft delete)
+- **URL Parameters**: `id` - Conversation ID
+- **Response (200)**:
+  ```json
+  {
+    "success": true,
+    "message": "Conversation deleted successfully"
+  }
+  ```
+- **Error Responses**:
+  - `401`: Not authenticated
+  - `404`: Conversation not found
+  - `500`: Server error
+
+### Send Specialized Health Query
+
+- **URL**: `/api/chatbot/health-query`
+- **Method**: `POST`
+- **Authentication**: Required
+- **Description**: Send a specialized health-related query using predefined templates
+- **Request Body**:
+  ```json
+  {
+    "queryType": "symptoms",  // Options: symptoms, medication, prevention, nutrition, exercise
+    "specificQuery": "diabetes",  // Optional, specific condition or topic
+    "conversationId": "60d21b4667d0d8992e610c92"  // Optional, for continuing an existing conversation
+  }
+  ```
+- **Response (200)**:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "message": "Common symptoms of diabetes include increased thirst (polydipsia), frequent urination (polyuria), extreme hunger (polyphagia), unexplained weight loss, fatigue, irritability, blurred vision, slow-healing sores, and frequent infections. Early warning signs may include tingling or numbness in the hands or feet, recurring skin, gum, or bladder infections, and cuts/bruises that are slow to heal. You should see a doctor if you experience any combination of these symptoms, especially increased thirst and urination accompanied by unexplained weight loss. Early diagnosis is crucial as untreated diabetes can lead to serious complications including heart disease, kidney damage, nerve damage, and vision problems.",
+      "conversationId": "60d21b4667d0d8992e610c92"
+    }
+  }
+  ```
+- **Error Responses**:
+  - `400`: Invalid query type
   - `401`: Not authenticated
   - `500`: Server error
 
@@ -702,6 +819,7 @@ The API uses the following main data models:
 - **Appointment**: Represents scheduled appointments between patients and doctors
 - **HealthCondition**: Represents patient health conditions and medical history
 - **Document**: Represents uploaded medical documents
+- **Conversation**: Represents chat conversations between users and the health assistant chatbot
 
 ## API Versioning
 
