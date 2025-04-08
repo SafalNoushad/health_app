@@ -64,7 +64,6 @@ const rfidSchema = new mongoose.Schema(
 );
 
 // Add index for faster lookups
-rfidSchema.index({ rfidNumber: 1 });
 rfidSchema.index({ userId: 1 });
 
 const RFID = mongoose.model('RFID', rfidSchema);

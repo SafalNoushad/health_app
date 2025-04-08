@@ -373,7 +373,7 @@ async function processChatbotMessage(req, res, message, conversationId) {
       }
     }
     
-    // Create a new conversation if none exists
+    // Create a new conversation if none exists or if the provided conversationId was invalid
     if (!conversation) {
       conversation = new Conversation({
         userId: req.user._id,
@@ -381,7 +381,6 @@ async function processChatbotMessage(req, res, message, conversationId) {
         messages: [],
         isActive: true
       });
-      await conversation.save();
     }
     
     // Prepare conversation history
@@ -427,37 +426,19 @@ async function processChatbotMessage(req, res, message, conversationId) {
     // Extract the assistant's response
     const assistantMessage = response.data.choices[0].message.content;
     
-    // Save the conversation
-    if (!conversation) {
-      // Create a new conversation
-      conversation = new Conversation({
-        userId: req.user._id,
-        title: message.substring(0, 50) + (message.length > 50 ? '...' : ''),
-        messages: [
-          {
-            role: 'user',
-            content: message
-          },
-          {
-            role: 'assistant',
-            content: assistantMessage
-          }
-        ]
-      });
-    } else {
-      // Update existing conversation
-      conversation.messages.push(
-        {
-          role: 'user',
-          content: message
-        },
-        {
-          role: 'assistant',
-          content: assistantMessage
-        }
-      );
-      conversation.updatedAt = Date.now();
-    }
+    // Update conversation messages
+    conversation.messages.push(
+      {
+        role: 'user',
+        content: message
+      },
+      {
+        role: 'assistant',
+        content: assistantMessage
+      }
+    );
+    conversation.updatedAt = Date.now();
+
     
     await conversation.save();
     
