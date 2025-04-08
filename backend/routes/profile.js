@@ -6,7 +6,7 @@ const connectToDatabase = require('../db/connect');
  * @swagger
  * /api/profile:
  *   get:
- *     summary: Get user profile
+ *     summary: Get user profile for authenticated user
  *     responses:
  *       200:
  *         description: A profile object
@@ -27,7 +27,7 @@ const connectToDatabase = require('../db/connect');
 router.get('/', async (req, res) => {
   try {
     const db = await connectToDatabase();
-    const profile = await db.collection('profiles').findOne();
+    const profile = await db.collection('users').findOne({ email: req.user.email });
     if (!profile) return res.status(404).json({ message: 'Profile not found' });
     res.json(profile);
   } catch (err) {
@@ -39,7 +39,7 @@ router.get('/', async (req, res) => {
  * @swagger
  * /api/profile:
  *   post:
- *     summary: Create or update user profile
+ *     summary: Create or update user profile for authenticated user
  *     requestBody:
  *       required: true
  *       content:
@@ -60,15 +60,16 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const db = await connectToDatabase();
-    const collection = db.collection('profiles');
-    const existingProfile = await collection.findOne();
+    const collection = db.collection('users');
+    const profileData = { ...req.body, email: req.user.email }; // Ensure email matches authenticated user
+    const existingProfile = await collection.findOne({ email: req.user.email });
     if (existingProfile) {
-      await collection.updateOne({}, { $set: req.body });
-      const updatedProfile = await collection.findOne();
+      await collection.updateOne({ email: req.user.email }, { $set: profileData });
+      const updatedProfile = await collection.findOne({ email: req.user.email });
       res.status(201).json(updatedProfile);
     } else {
-      await collection.insertOne(req.body);
-      res.status(201).json(req.body);
+      await collection.insertOne(profileData);
+      res.status(201).json(profileData);
     }
   } catch (err) {
     res.status(400).json({ message: err.message });

@@ -1,63 +1,299 @@
 frontend/app/(dashboard)/appointments.tsx:
 
 contents:
+// AppointmentsScreen.tsx
 import { useEffect, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, Platform, Alert } from 'react-native';
+import { Picker } from '@react-native-picker/picker';
 import { Clock } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import BottomNav from './components/BottomNav';
-import { styles } from './styles/appointmentsStyles';
 import axios, { AxiosError } from 'axios';
 import { Appointment } from '../type';
+import { useAuth } from '../auth';
+
+const timeSlots = [
+  '08:00', '09:00', '10:00', '11:00',
+  '12:00', '13:00', '14:00', '15:00',
+  '16:00', '17:00'
+];
 
 export default function AppointmentsScreen() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const backendUrl = 'http://192.168.1.224:5002/api'; // Replace with your actual IP
+  const [pendingAppointments, setPendingAppointments] = useState<Appointment[]>([]);
+  const [hospitals, setHospitals] = useState<any[]>([]);
+  const [doctors, setDoctors] = useState<any[]>([]);
+  const [selectedHospital, setSelectedHospital] = useState('');
+  const [selectedDoctor, setSelectedDoctor] = useState('');
+  const [specialty, setSpecialty] = useState('');
+  const [date, setDate] = useState<Date | null>(null);
+  const [time, setTime] = useState('');
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const { token, logout } = useAuth();
+  const backendUrl = 'http://192.168.1.224:5002/api';
 
   useEffect(() => {
-    const fetchAppointments = async () => {
-      try {
-        const response = await axios.get<Appointment[]>(`${backendUrl}/appointments`);
-        setAppointments(response.data);
-      } catch (error) {
-        const axiosError = error as AxiosError;
-        console.log('Error fetching appointments:', axiosError.response?.data);
+    if (token) {
+      fetchAppointments();
+      fetchHospitals();
+    }
+  }, [token]);
+
+  const fetchAppointments = async () => {
+    if (!token) return;
+    try {
+      const response = await axios.get<Appointment[]>(`${backendUrl}/appointments`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const approved = response.data.filter(appt => appt.status === 'approved');
+      const pending = response.data.filter(appt => appt.status === 'pending');
+      setAppointments(approved);
+      setPendingAppointments(pending);
+    } catch (error) {
+      const axiosError = error as AxiosError<{ message: string }>;
+      console.log('Error fetching appointments:', axiosError.response?.data);
+      if (axiosError.response?.data?.message === 'Invalid or expired token') {
+        Alert.alert('Session Expired', 'Your session has expired. Please log in again.');
+        logout();
+      } else {
+        Alert.alert('Error', 'Failed to fetch appointments.');
       }
-    };
-    fetchAppointments();
-  }, []);
+    }
+  };
+
+  const fetchHospitals = async () => {
+    if (!token) return;
+    try {
+      const response = await axios.get(`${backendUrl}/hospitals`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setHospitals(response.data);
+    } catch (error) {
+      console.log('Error fetching hospitals:', error);
+      Alert.alert('Error', 'Failed to fetch hospitals.');
+    }
+  };
+
+  const fetchDoctors = async (hospitalId: string) => {
+    if (!hospitalId || !token) return;
+    try {
+      const response = await axios.get(`${backendUrl}/doctors?hospitalId=${hospitalId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setDoctors(response.data);
+    } catch (error) {
+      console.log('Error fetching doctors:', error);
+      Alert.alert('Error', 'Failed to fetch doctors.');
+    }
+  };
+
+  const handleHospitalChange = (value: string) => {
+    setSelectedHospital(value);
+    fetchDoctors(value);
+    setSelectedDoctor('');
+    setSpecialty('');
+  };
+
+  const handleDoctorChange = (value: string) => {
+    setSelectedDoctor(value);
+    const doctor = doctors.find(d => d.id === value);
+    setSpecialty(doctor?.specialty || '');
+  };
+
+  const formatDate = (date: Date | null) => {
+    return date ? date.toISOString().split('T')[0] : '';
+  };
+
+  const bookAppointment = async () => {
+    if (!selectedHospital || !selectedDoctor || !date || !time) {
+      Alert.alert('Error', 'Please fill all fields');
+      return;
+    }
+    try {
+      await axios.post(`${backendUrl}/appointments`, {
+        hospitalId: selectedHospital,
+        doctorId: selectedDoctor,
+        doctorName: doctors.find(d => d.id === selectedDoctor)?.name || 'Unknown',
+        specialty,
+        date: formatDate(date),
+        time,
+        status: 'pending',
+      }, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      fetchAppointments();
+      setSelectedHospital('');
+      setSelectedDoctor('');
+      setSpecialty('');
+      setDate(null);
+      setTime('');
+      Alert.alert('Success', 'Appointment booked successfully');
+    } catch (error) {
+      console.log('Error booking appointment:', error);
+      Alert.alert('Error', 'Failed to book appointment.');
+    }
+  };
+
+  const rescheduleAppointment = async (appointmentId: string) => {
+    if (!date || !time) {
+      Alert.alert('Error', 'Please select a new date and time');
+      return;
+    }
+    try {
+      await axios.put(`${backendUrl}/appointments/${appointmentId}`, {
+        date: formatDate(date),
+        time,
+      }, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      fetchAppointments();
+      setDate(null);
+      setTime('');
+      Alert.alert('Success', 'Appointment rescheduled successfully');
+    } catch (error) {
+      console.log('Error rescheduling appointment:', error);
+      Alert.alert('Error', 'Failed to reschedule appointment.');
+    }
+  };
+
+  const onDateChange = (event: any, selectedDate?: Date) => {
+    const currentDate = selectedDate || date || new Date();
+    setShowDatePicker(Platform.OS === 'ios');
+    setDate(currentDate);
+  };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        <ScrollView contentContainerStyle={styles.content}>
-          <Text style={styles.sectionTitle}>Appointments</Text>
-          {appointments.length > 0 ? (
-            appointments.map((appt, index) => (
-              <View key={index} style={styles.appointmentCard}>
-                <View style={styles.appointmentLeft}>
-                  <View style={styles.appointmentDateBox}>
-                    <Text style={styles.appointmentMonth}>
+    <SafeAreaView /* style={localStyles.safeArea} */>
+      <View /* style={localStyles.container} */>
+        <ScrollView
+          /* contentContainerStyle={localStyles.content} */
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text /* style={localStyles.sectionTitle} */>Book Appointment</Text>
+          <View /* style={localStyles.bookingSection} */>
+            <View /* style={localStyles.formField} */>
+              <Picker
+                selectedValue={selectedHospital}
+                onValueChange={handleHospitalChange}
+                /* style={localStyles.picker} */
+              >
+                <Picker.Item label="Select Hospital" value="" />
+                {hospitals.map(hospital => (
+                  <Picker.Item key={hospital.id} label={hospital.name} value={hospital.id} />
+                ))}
+              </Picker>
+            </View>
+
+            <View /* style={localStyles.formField} */>
+              <Picker
+                selectedValue={selectedDoctor}
+                onValueChange={handleDoctorChange}
+                /* style={localStyles.picker} */
+                enabled={!!selectedHospital}
+              >
+                <Picker.Item label="Select Doctor" value="" />
+                {doctors.map(doctor => (
+                  <Picker.Item key={doctor.id} label={`${doctor.name} - ${doctor.specialty}`} value={doctor.id} />
+                ))}
+              </Picker>
+            </View>
+
+            <View /* style={localStyles.formField} */>
+              <TouchableOpacity
+                /* style={localStyles.dateButton} */
+                onPress={() => setShowDatePicker(true)}
+              >
+                <Text /* style={localStyles.dateButtonText} */>
+                  {date ? formatDate(date) : 'Select Date'}
+                </Text>
+              </TouchableOpacity>
+              {showDatePicker && (
+                <DateTimePicker
+                  value={date || new Date()}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'inline' : 'default'}
+                  onChange={onDateChange}
+                  minimumDate={new Date()}
+                />
+              )}
+            </View>
+
+            <View /* style={localStyles.formField} */>
+              <Picker
+                selectedValue={time}
+                onValueChange={(value) => setTime(value)}
+                /* style={localStyles.picker} */
+              >
+                <Picker.Item label="Select Time" value="" />
+                {timeSlots.map(slot => (
+                  <Picker.Item key={slot} label={slot} value={slot} />
+                ))}
+              </Picker>
+            </View>
+
+            <TouchableOpacity /* style={localStyles.bookButton} */ onPress={bookAppointment}>
+              <Text /* style={localStyles.bookButtonText} */>Book Now</Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text /* style={localStyles.sectionTitle} */>Pending Appointments</Text>
+          {pendingAppointments.length > 0 ? (
+            pendingAppointments.map((appt, index) => (
+              <View key={appt._id || index} /* style={localStyles.appointmentCard} */>
+                <View /* style={localStyles.appointmentLeft} */>
+                  <View /* style={localStyles.appointmentDateBox} */>
+                    <Text /* style={localStyles.appointmentMonth} */>
                       {new Date(appt.date).toLocaleString('default', { month: 'short' }).toUpperCase()}
                     </Text>
-                    <Text style={styles.appointmentDay}>{new Date(appt.date).getDate()}</Text>
+                    <Text /* style={localStyles.appointmentDay} */>{new Date(appt.date).getDate()}</Text>
                   </View>
-                  <View style={styles.appointmentDetails}>
-                    <Text style={styles.appointmentTitle}>{appt.doctorName}</Text>
-                    <Text style={styles.appointmentSpecialty}>{appt.specialty}</Text>
-                    <View style={styles.appointmentTime}>
+                  <View /* style={localStyles.appointmentDetails} */>
+                    <Text /* style={localStyles.appointmentTitle} */>{appt.doctorName}</Text>
+                    <Text /* style={localStyles.appointmentSpecialty} */>{appt.specialty}</Text>
+                    <View /* style={localStyles.appointmentTime} */>
                       <Clock size={14} color="#666" />
-                      <Text style={styles.appointmentTimeText}>{appt.time}</Text>
+                      <Text /* style={localStyles.appointmentTimeText} */>{appt.time}</Text>
                     </View>
                   </View>
                 </View>
-                <TouchableOpacity style={styles.rescheduleButton}>
-                  <Text style={styles.rescheduleText}>Reschedule</Text>
+                <Text /* style={localStyles.statusText} */>Pending</Text>
+              </View>
+            ))
+          ) : (
+            <Text>No pending appointments.</Text>
+          )}
+
+          <Text /* style={localStyles.sectionTitle} */>Approved Appointments</Text>
+          {appointments.length > 0 ? (
+            appointments.map((appt, index) => (
+              <View key={appt._id || index} /* style={localStyles.appointmentCard} */>
+                <View /* style={localStyles.appointmentLeft} */>
+                  <View /* style={localStyles.appointmentDateBox} */>
+                    <Text /* style={localStyles.appointmentMonth} */>
+                      {new Date(appt.date).toLocaleString('default', { month: 'short' }).toUpperCase()}
+                    </Text>
+                    <Text /* style={localStyles.appointmentDay} */>{new Date(appt.date).getDate()}</Text>
+                  </View>
+                  <View /* style={localStyles.appointmentDetails} */>
+                    <Text /* style={localStyles.appointmentTitle} */>{appt.doctorName}</Text>
+                    <Text /* style={localStyles.appointmentSpecialty} */>{appt.specialty}</Text>
+                    <View /* style={localStyles.appointmentTime} */>
+                      <Clock size={14} color="#666" />
+                      <Text /* style={localStyles.appointmentTimeText} */>{appt.time}</Text>
+                    </View>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  /* style={localStyles.rescheduleButton} */
+                  onPress={() => rescheduleAppointment(appt._id!)}
+                >
+                  <Text /* style={localStyles.rescheduleText} */>Reschedule</Text>
                 </TouchableOpacity>
               </View>
             ))
           ) : (
-            <Text>No appointments found.</Text>
+            <Text>No approved appointments.</Text>
           )}
         </ScrollView>
         <BottomNav />
@@ -72,7 +308,7 @@ frontend/app/(dashboard)/chatbot.tsx:
 
 contents:
 import { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { MessageSquare } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BottomNav from './components/BottomNav';
@@ -80,7 +316,6 @@ import { styles } from './styles/chatbotStyles';
 import axios, { AxiosError } from 'axios';
 import { useAuth } from '../auth';
 
-// Define the expected response type from OpenRouter
 interface ChatResponse {
   choices: { message: { content: string } }[];
 }
@@ -91,7 +326,7 @@ export default function ChatbotScreen() {
   ]);
   const [input, setInput] = useState('');
   const { token } = useAuth();
-  const backendUrl = 'http://192.168.1.224:5002/api'; // Replace with your actual IP
+  const backendUrl = 'http://192.168.1.224:5002/api';
 
   const sendMessage = async () => {
     if (!input.trim()) return;
@@ -106,7 +341,7 @@ export default function ChatbotScreen() {
         { message: input },
         {
           headers: {
-            Authorization: `Bearer ${token}`, // Uncomment if protected
+            Authorization: `Bearer ${token}`,
           },
         }
       );
@@ -127,7 +362,11 @@ export default function ChatbotScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.container}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
+      >
         <ScrollView contentContainerStyle={styles.chatContainerContent}>
           {messages.map((msg, index) => (
             <View
@@ -154,10 +393,161 @@ export default function ChatbotScreen() {
           </TouchableOpacity>
         </View>
         <BottomNav />
-      </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
+
+============================
+
+frontend/app/(dashboard)/components/AppointmentForm.tsx:
+
+contents:
+// components/AppointmentForm.tsx
+
+import React, { useState, useEffect } from 'react';
+
+type Doctor = {
+  id: string;
+  name: string;
+};
+
+type Hospital = {
+  id: string;
+  name: string;
+  doctors: Doctor[];
+};
+
+const hospitals: Hospital[] = [
+  {
+    id: 'h1',
+    name: 'City Hospital',
+    doctors: [
+      { id: 'd1', name: 'Dr. Smith' },
+      { id: 'd2', name: 'Dr. Taylor' },
+    ],
+  },
+  {
+    id: 'h2',
+    name: 'Green Valley Clinic',
+    doctors: [
+      { id: 'd3', name: 'Dr. Allen' },
+      { id: 'd4', name: 'Dr. Johnson' },
+    ],
+  },
+];
+
+const timeSlots = [
+  '08:00 AM', '09:00 AM', '10:00 AM', '11:00 AM',
+  '12:00 PM', '01:00 PM', '02:00 PM', '03:00 PM',
+  '04:00 PM', '05:00 PM'
+];
+
+const AppointmentForm: React.FC = () => {
+  const [selectedHospital, setSelectedHospital] = useState<string>('');
+  const [availableDoctors, setAvailableDoctors] = useState<Doctor[]>([]);
+  const [form, setForm] = useState({
+    hospitalId: '',
+    doctorId: '',
+    date: '',
+    time: ''
+  });
+
+  useEffect(() => {
+    const hospital = hospitals.find(h => h.id === selectedHospital);
+    if (hospital) {
+      setAvailableDoctors(hospital.doctors);
+    } else {
+      setAvailableDoctors([]);
+    }
+  }, [selectedHospital]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    console.log('Form Submitted:', form);
+    // You can post the form data to your backend here
+  };
+
+  return (
+    <div style={{ padding: '20px', maxWidth: '500px', margin: 'auto' }}>
+      <h2>Book an Appointment</h2>
+      <form onSubmit={handleSubmit}>
+        <label style={{ display: 'block', marginBottom: '10px' }}>
+          Hospital:
+          <select
+            name="hospitalId"
+            value={form.hospitalId}
+            onChange={(e) => {
+              handleChange(e);
+              setSelectedHospital(e.target.value);
+            }}
+            style={{ color: 'black', width: '100%', padding: '8px', marginTop: '4px' }}
+            required
+          >
+            <option value="">Select Hospital</option>
+            {hospitals.map(h => (
+              <option key={h.id} value={h.id}>{h.name}</option>
+            ))}
+          </select>
+        </label>
+
+        <label style={{ display: 'block', marginBottom: '10px' }}>
+          Doctor:
+          <select
+            name="doctorId"
+            value={form.doctorId}
+            onChange={handleChange}
+            style={{ color: 'black', width: '100%', padding: '8px', marginTop: '4px' }}
+            required
+          >
+            <option value="">Select Doctor</option>
+            {availableDoctors.map(d => (
+              <option key={d.id} value={d.id}>{d.name}</option>
+            ))}
+          </select>
+        </label>
+
+        <label style={{ display: 'block', marginBottom: '10px' }}>
+          Date:
+          <input
+            type="date"
+            name="date"
+            value={form.date}
+            onChange={handleChange}
+            style={{ color: 'black', width: '100%', padding: '8px', marginTop: '4px' }}
+            required
+          />
+        </label>
+
+        <label style={{ display: 'block', marginBottom: '10px' }}>
+          Time:
+          <select
+            name="time"
+            value={form.time}
+            onChange={handleChange}
+            style={{ color: 'black', width: '100%', padding: '8px', marginTop: '4px' }}
+            required
+          >
+            <option value="">Select Time</option>
+            {timeSlots.map((slot, i) => (
+              <option key={i} value={slot}>{slot}</option>
+            ))}
+          </select>
+        </label>
+
+        <button type="submit" style={{ padding: '10px 20px', marginTop: '10px' }}>
+          Book Appointment
+        </button>
+      </form>
+    </div>
+  );
+};
+
+export default AppointmentForm;
 
 ============================
 
@@ -210,7 +600,7 @@ contents:
 import { useEffect, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import { useAuth } from '../auth';
-import { Pill, Clock, Heart, Activity } from 'lucide-react-native';
+import { Clock } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BottomNav from './components/BottomNav';
 import { styles } from './styles/dashboardStyles';
@@ -218,51 +608,48 @@ import axios, { AxiosError } from 'axios';
 import { Appointment } from '../type';
 
 export default function DashboardScreen() {
-  const { logout, token } = useAuth();
+  const { token } = useAuth();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const backendUrl = 'http://192.168.1.224:5002/api'; // Replace with your actual IP
+  const backendUrl = 'http://192.168.1.224:5002/api';
+
+  const fetchAppointments = async () => {
+    try {
+      const response = await axios.get<Appointment[]>(`${backendUrl}/appointments`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setAppointments(response.data.slice(0, 1)); // Show only the first appointment
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      console.log('Error fetching appointments:', axiosError.response?.data);
+    }
+  };
 
   useEffect(() => {
-    const fetchAppointments = async () => {
-      try {
-        const response = await axios.get<Appointment[]>(`${backendUrl}/appointments`);
-        setAppointments(response.data.slice(0, 1)); // Show only the first appointment
-      } catch (error) {
-        const axiosError = error as AxiosError;
-        console.log('Error fetching appointments:', axiosError.response?.data);
-      }
-    };
     fetchAppointments();
   }, []);
 
-  const handleLogout = () => {
-    logout();
+  const rescheduleAppointment = async (appointmentId: string) => {
+    const date = prompt('Enter new date (YYYY-MM-DD):');
+    const time = prompt('Enter new time (HH:MM):');
+    if (!date || !time) {
+      alert('Please enter a new date and time');
+      return;
+    }
+    try {
+      await axios.put(`${backendUrl}/appointments/${appointmentId}`, { date, time }, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      fetchAppointments();
+      alert('Appointment rescheduled successfully');
+    } catch (error) {
+      console.log('Error rescheduling appointment:', error);
+    }
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
         <ScrollView contentContainerStyle={styles.scrollViewContent} showsVerticalScrollIndicator={false}>
-          <View style={styles.summaryContainer}>
-            <Text style={styles.sectionTitle}>Health Summary</Text>
-            <View style={styles.statsGrid}>
-              <View style={styles.statCard}>
-                <Heart size={24} color="#e74c3c" />
-                <Text style={styles.statValue}>72 BPM</Text>
-                <Text style={styles.statLabel}>Heart Rate</Text>
-              </View>
-              <View style={styles.statCard}>
-                <Activity size={24} color="#3498db" />
-                <Text style={styles.statValue}>120/80</Text>
-                <Text style={styles.statLabel}>Blood Pressure</Text>
-              </View>
-              <View style={styles.statCard}>
-                <Clock size={24} color="#9b59b6" />
-                <Text style={styles.statValue}>7.5 hrs</Text>
-                <Text style={styles.statLabel}>Sleep</Text>
-              </View>
-            </View>
-          </View>
           <View style={styles.appointmentsContainer}>
             <Text style={styles.sectionTitle}>Upcoming Appointments</Text>
             {appointments.length > 0 ? (
@@ -284,7 +671,7 @@ export default function DashboardScreen() {
                       </View>
                     </View>
                   </View>
-                  <TouchableOpacity style={styles.rescheduleButton}>
+                  <TouchableOpacity style={styles.rescheduleButton} onPress={() => rescheduleAppointment(appt._id!)}>
                     <Text style={styles.rescheduleText}>Reschedule</Text>
                   </TouchableOpacity>
                 </View>
@@ -293,9 +680,6 @@ export default function DashboardScreen() {
               <Text>No upcoming appointments.</Text>
             )}
           </View>
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-            <Text style={styles.logoutButtonText}>Logout</Text>
-          </TouchableOpacity>
         </ScrollView>
         <BottomNav />
       </View>
@@ -308,33 +692,143 @@ export default function DashboardScreen() {
 frontend/app/(dashboard)/medicalhistory.tsx:
 
 contents:
-import { View, Text, ScrollView } from 'react-native';
-import { FileText } from 'lucide-react-native';
+import { useState, useEffect } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, TextInput } from 'react-native';
+import { FileText, Upload } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BottomNav from './components/BottomNav';
-import { styles } from './styles/medicalHistoryStyles'; // Import styles
+import { styles } from './styles/medicalHistoryStyles';
+import * as DocumentPicker from 'expo-document-picker';
+import axios from 'axios';
+import { useAuth } from '../auth';
 
 export default function MedicalHistoryScreen() {
+  const [records, setRecords] = useState<any[]>([]);
+  const [previousConditions, setPreviousConditions] = useState('');
+  const [currentConditions, setCurrentConditions] = useState('');
+  const { token } = useAuth(); // Added useAuth for token
+  const backendUrl = 'http://192.168.1.224:5002/api';
+
+  useEffect(() => {
+    fetchRecords();
+    fetchConditions();
+  }, []);
+
+  const uploadDocument = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDirectory: true,
+      });
+
+      if (!result.canceled) {
+        const formData = new FormData();
+        formData.append('file', {
+          uri: result.assets[0].uri,
+          name: result.assets[0].name,
+          type: result.assets[0].mimeType || 'application/octet-stream',
+        } as any);
+
+        await axios.post(`${backendUrl}/medical-reports/upload`, formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        fetchRecords();
+      }
+    } catch (error) {
+      console.log('Error uploading document:', error);
+    }
+  };
+
+  const fetchRecords = async () => {
+    try {
+      const response = await axios.get(`${backendUrl}/medical-reports`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setRecords(response.data);
+    } catch (error) {
+      console.log('Error fetching records:', error);
+    }
+  };
+
+  const fetchConditions = async () => {
+    try {
+      const response = await axios.get(`${backendUrl}/medical-conditions`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setPreviousConditions(response.data.previousConditions || '');
+      setCurrentConditions(response.data.currentConditions || '');
+    } catch (error) {
+      console.log('Error fetching conditions:', error);
+    }
+  };
+
+  const saveConditions = async () => {
+    try {
+      await axios.post(`${backendUrl}/medical-conditions`, {
+        previousConditions,
+        currentConditions,
+      }, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      alert('Conditions saved successfully');
+    } catch (error) {
+      console.log('Error saving conditions:', error);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
         <ScrollView contentContainerStyle={styles.content}>
           <Text style={styles.sectionTitle}>Medical History</Text>
-          <View style={styles.recordCard}>
-            <FileText size={24} color="#4a55a2" />
-            <View style={styles.recordDetails}>
-              <Text style={styles.recordTitle}>Annual Checkup</Text>
-              <Text style={styles.recordDate}>March 10, 2025</Text>
-              <Text style={styles.recordDescription}>Normal results, BP 120/80, HR 70 BPM</Text>
-            </View>
+
+          <View style={styles.uploadSection}>
+            <TouchableOpacity style={styles.uploadButton} onPress={uploadDocument}>
+              <Upload size={24} color="#fff" />
+              <Text style={styles.uploadButtonText}>Upload Report</Text>
+            </TouchableOpacity>
           </View>
-          <View style={styles.recordCard}>
-            <FileText size={24} color="#4a55a2" />
-            <View style={styles.recordDetails}>
-              <Text style={styles.recordTitle}>Flu Shot</Text>
-              <Text style={styles.recordDate}>October 15, 2024</Text>
-              <Text style={styles.recordDescription}>Administered seasonal flu vaccine</Text>
-            </View>
+
+          <Text style={styles.subTitle}>Medical Records</Text>
+          {records.length > 0 ? (
+            records.map((record, index) => (
+              <View key={index} style={styles.recordCard}>
+                <FileText size={24} color="#4a55a2" />
+                <View style={styles.recordDetails}>
+                  <Text style={styles.recordTitle}>{record.title}</Text>
+                  <Text style={styles.recordDate}>{record.date}</Text>
+                  <Text style={styles.recordDescription}>{record.description}</Text>
+                </View>
+              </View>
+            ))
+          ) : (
+            <Text>No medical records available.</Text>
+          )}
+
+          <Text style={styles.subTitle}>Health Conditions</Text>
+          <View style={styles.conditionsSection}>
+            <Text style={styles.conditionLabel}>Previous Conditions</Text>
+            <TextInput
+              style={styles.conditionInput}
+              multiline
+              value={previousConditions}
+              onChangeText={setPreviousConditions}
+              placeholder="Enter previous conditions..."
+            />
+            <Text style={styles.conditionLabel}>Current Conditions</Text>
+            <TextInput
+              style={styles.conditionInput}
+              multiline
+              value={currentConditions}
+              onChangeText={setCurrentConditions}
+              placeholder="Enter current conditions..."
+            />
+            <TouchableOpacity style={styles.uploadButton} onPress={saveConditions}>
+              <Text style={styles.uploadButtonText}>Save Conditions</Text>
+            </TouchableOpacity>
           </View>
         </ScrollView>
         <BottomNav />
@@ -349,25 +843,29 @@ frontend/app/(dashboard)/profile.tsx:
 
 contents:
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, Image } from 'react-native';
+import { View, Text, ScrollView, Image, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BottomNav from './components/BottomNav';
 import { styles } from './styles/profileStyles';
 import axios, { AxiosError } from 'axios';
 import { useAuth } from '../auth';
 import { Profile } from '../type';
+import { router } from 'expo-router';
 
 export default function ProfileScreen() {
   const [profile, setProfile] = useState<Profile | null>(null);
-  const { token } = useAuth();
-  const backendUrl = 'http://192.168.1.224:5002/api'; // Replace with your actual IP
+  const { token, logout } = useAuth();
+  const backendUrl = 'http://192.168.1.224:5002/api';
 
   useEffect(() => {
-    if (!token) return;
+    if (!token) {
+      router.replace('/login'); // Redirect if no token
+      return;
+    }
 
     const fetchProfile = async () => {
       try {
-        const response = await axios.get<Profile>(`${backendUrl}/profile`, {
+        const response = await axios.get<Profile>(`${backendUrl}/users`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -376,10 +874,19 @@ export default function ProfileScreen() {
       } catch (error) {
         const axiosError = error as AxiosError;
         console.log('Error fetching profile:', axiosError.response?.data);
+        setProfile(null); // Clear profile on error (interceptor should redirect)
       }
     };
     fetchProfile();
   }, [token]);
+
+  const handleLogout = () => {
+    logout();
+  };
+
+  const handleLoginRedirect = () => {
+    router.push('/login');
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -389,7 +896,10 @@ export default function ProfileScreen() {
           {profile ? (
             <>
               <View style={styles.profileCard}>
-                <Image source={{ uri: profile.imageUrl || 'https://via.placeholder.com/100' }} style={styles.profileImage} />
+                <Image
+                  source={{ uri: profile.imageUrl || 'https://via.placeholder.com/100' }}
+                  style={styles.profileImage}
+                />
                 <Text style={styles.profileName}>{profile.name || 'Unnamed'}</Text>
                 <Text style={styles.profileEmail}>{profile.email}</Text>
               </View>
@@ -399,9 +909,17 @@ export default function ProfileScreen() {
                 <Text style={styles.infoText}>Phone: {profile.phone || 'N/A'}</Text>
                 <Text style={styles.infoText}>Address: {profile.address || 'N/A'}</Text>
               </View>
+              <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+                <Text style={styles.logoutButtonText}>Logout</Text>
+              </TouchableOpacity>
             </>
           ) : (
-            <Text>Loading...</Text>
+            <View style={{ alignItems: 'center' }}>
+              <Text>Unable to load profile. Please log in again.</Text>
+              <TouchableOpacity style={styles.logoutButton} onPress={handleLoginRedirect}>
+                <Text style={styles.logoutButtonText}>Login</Text>
+              </TouchableOpacity>
+            </View>
           )}
         </ScrollView>
         <BottomNav />
@@ -415,99 +933,109 @@ export default function ProfileScreen() {
 frontend/app/(dashboard)/styles/appointmentsStyles.ts:
 
 contents:
-import { StyleSheet } from 'react-native';
+// // appointmentsStyles.ts
+// import { StyleSheet } from 'react-native';
 
-export const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#f5f7fa',
-  },
-  container: {
-    flex: 1,
-  },
-  content: {
-    padding: 20,
-    paddingBottom: 80, // Space for BottomNav
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 15,
-    color: '#333',
-  },
-  appointmentCard: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  appointmentLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  appointmentDateBox: {
-    backgroundColor: '#f0f4ff',
-    borderRadius: 12,
-    padding: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 50,
-    height: 60,
-  },
-  appointmentMonth: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#4a55a2',
-  },
-  appointmentDay: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#4a55a2',
-  },
-  appointmentDetails: {
-    marginLeft: 12,
-    flex: 1,
-  },
-  appointmentTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  appointmentSpecialty: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 4,
-  },
-  appointmentTime: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  appointmentTimeText: {
-    fontSize: 12,
-    color: '#666',
-    marginLeft: 4,
-  },
-  rescheduleButton: {
-    backgroundColor: '#f0f4ff',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-  },
-  rescheduleText: {
-    color: '#4a55a2',
-    fontWeight: '500',
-    fontSize: 12,
-  },
-});
+// export const styles = StyleSheet.create({
+//   safeArea: {
+//     flex: 1,
+//     backgroundColor: '#fff',
+//   },
+//   container: {
+//     flex: 1,
+//   },
+//   content: {
+//     padding: 16,
+//     paddingBottom: 80, // Space for BottomNav
+//   },
+//   sectionTitle: {
+//     fontSize: 20,
+//     fontWeight: '600',
+//     color: '#333',
+//     marginBottom: 16,
+//   },
+//   bookingSection: {
+//     marginBottom: 24,
+//   },
+//   appointmentCard: {
+//     flexDirection: 'row',
+//     justifyContent: 'space-between',
+//     alignItems: 'center',
+//     backgroundColor: '#f5f7fa',
+//     borderRadius: 8,
+//     padding: 12,
+//     marginBottom: 12,
+//   },
+//   appointmentLeft: {
+//     flexDirection: 'row',
+//     alignItems: 'center',
+//   },
+//   appointmentDateBox: {
+//     alignItems: 'center',
+//     justifyContent: 'center',
+//     width: 50,
+//     height: 50,
+//     backgroundColor: '#fff',
+//     borderRadius: 8,
+//     marginRight: 12,
+//   },
+//   appointmentMonth: {
+//     fontSize: 12,
+//     color: '#007bff',
+//     fontWeight: '600',
+//   },
+//   appointmentDay: {
+//     fontSize: 18,
+//     color: '#333',
+//     fontWeight: '600',
+//   },
+//   appointmentDetails: {
+//     flex: 1,
+//   },
+//   appointmentTitle: {
+//     fontSize: 16,
+//     fontWeight: '500',
+//     color: '#333',
+//   },
+//   appointmentSpecialty: {
+//     fontSize: 14,
+//     color: '#666',
+//     marginVertical: 2,
+//   },
+//   appointmentTime: {
+//     flexDirection: 'row',
+//     alignItems: 'center',
+//   },
+//   appointmentTimeText: {
+//     fontSize: 14,
+//     color: '#666',
+//     marginLeft: 4,
+//   },
+//   statusText: {
+//     fontSize: 12,
+//     color: '#ffa500',
+//     fontWeight: '500',
+//   },
+//   bookButton: {
+//     backgroundColor: '#007bff',
+//     paddingVertical: 14,
+//     borderRadius: 8,
+//     alignItems: 'center',
+//   },
+//   bookButtonText: {
+//     color: '#fff',
+//     fontSize: 16,
+//     fontWeight: '500',
+//   },
+//   rescheduleButton: {
+//     padding: 8,
+//   },
+//   rescheduleText: {
+//     color: '#007bff',
+//     fontSize: 14,
+//     fontWeight: '500',
+//   },
+// });
 
 ============================
 
@@ -567,7 +1095,7 @@ export const styles = StyleSheet.create({
   },
   chatContainerContent: {
     padding: 20,
-    paddingBottom: 80, // Space for BottomNav
+    paddingBottom: 20, // Adjusted to avoid overlap with input
   },
   message: {
     backgroundColor: '#fff',
@@ -627,45 +1155,14 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 80, // Space for BottomNav
   },
-  summaryContainer: {
+  appointmentsContainer: {
     marginTop: 20,
-    marginBottom: 10,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 15,
     color: '#333',
-  },
-  statsGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  statCard: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 16,
-    width: '31%',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  statValue: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginTop: 8,
-    marginBottom: 4,
-    color: '#333',
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#666',
-  },
-  appointmentsContainer: {
-    marginTop: 20,
   },
   appointmentCard: {
     backgroundColor: '#fff',
@@ -739,81 +1236,6 @@ export const styles = StyleSheet.create({
     fontWeight: '500',
     fontSize: 12,
   },
-  medicationsContainer: {
-    marginTop: 20,
-  },
-  medicationCard: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  medicationIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  medicationDetails: {
-    marginLeft: 12,
-    flex: 1,
-  },
-  medicationName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  medicationDosage: {
-    fontSize: 14,
-    color: '#666',
-  },
-  medicationTime: {
-    alignItems: 'flex-end',
-  },
-  medicationTimeText: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 4,
-  },
-  medicationStatus: {
-    backgroundColor: '#e8f5e9',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 8,
-  },
-  medicationStatusText: {
-    color: '#4caf50',
-    fontWeight: '500',
-    fontSize: 12,
-  },
-  medicationPending: {
-    backgroundColor: '#fff8e1',
-  },
-  medicationPendingText: {
-    color: '#ffc107',
-    fontWeight: '500',
-    fontSize: 12,
-  },
-  logoutButton: {
-    backgroundColor: '#e74c3c',
-    padding: 15,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 20,
-  },
-  logoutButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
 });
 
 ============================
@@ -839,6 +1261,29 @@ export const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 15,
+    color: '#333',
+  },
+  uploadSection: {
+    marginBottom: 20,
+  },
+  uploadButton: {
+    flexDirection: 'row',
+    backgroundColor: '#4a55a2',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  uploadButtonText: {
+    color: '#fff',
+    marginLeft: 8,
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  subTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 10,
     color: '#333',
   },
   recordCard: {
@@ -872,6 +1317,34 @@ export const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
   },
+  conditionsSection: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  conditionLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    marginBottom: 8,
+    color: '#555',
+  },
+  conditionInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+    minHeight: 100,
+    textAlignVertical: 'top',
+    fontSize: 16,
+    color: '#333',
+  },
 });
 
 ============================
@@ -879,7 +1352,6 @@ export const styles = StyleSheet.create({
 frontend/app/(dashboard)/styles/profileStyles.ts:
 
 contents:
-// frontend/app/(dashboard)/styles/profileStyles.ts
 import { StyleSheet } from 'react-native';
 
 export const styles = StyleSheet.create({
@@ -937,6 +1409,7 @@ export const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 10,
     elevation: 2,
+    marginBottom: 20,
   },
   infoTitle: {
     fontSize: 18,
@@ -948,6 +1421,19 @@ export const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
     marginBottom: 5,
+  },
+  logoutButton: {
+    backgroundColor: '#e74c3c',
+    padding: 15,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 20,
+    marginBottom: 20,
+  },
+  logoutButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });
 
@@ -973,16 +1459,16 @@ function RootLayoutNav() {
 
   useEffect(() => {
     if (!isLoggedIn) {
-      router.replace('/login');
+      router.replace('/login'); // Redirect to login if not authenticated
     } else {
-      router.replace('/(dashboard)');
+      router.replace('/(dashboard)'); // Redirect to dashboard if authenticated
     }
   }, [isLoggedIn]);
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="login" />
-      <Stack.Screen name="(dashboard)" />
+      <Stack.Screen name="login" options={{ title: 'Login' }} /> {/* Root route should be login */}
+      <Stack.Screen name="(dashboard)" /> {/* Dashboard group */}
     </Stack>
   );
 }
@@ -994,6 +1480,8 @@ frontend/app/auth.tsx:
 contents:
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
+import { router } from 'expo-router';
 
 interface AuthContextType {
   isLoggedIn: boolean;
@@ -1030,7 +1518,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await AsyncStorage.removeItem('token');
     setToken(null);
     setIsLoggedIn(false);
+    router.replace('/login'); // Redirect to login on logout
   };
+
+  // Axios interceptor to catch 403 errors and logout
+  useEffect(() => {
+    const interceptor = axios.interceptors.response.use(
+      response => response,
+      error => {
+        if (error.response?.status === 403 || error.response?.data?.message === 'Invalid or expired token') {
+          logout(); // Automatically log out and redirect on token error
+        }
+        return Promise.reject(error);
+      }
+    );
+
+    // Cleanup interceptor on unmount
+    return () => axios.interceptors.response.eject(interceptor);
+  }, []);
 
   const authContext: AuthContextType = {
     isLoggedIn,
@@ -1063,6 +1568,7 @@ import {
   Platform,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { Lock, User, Eye, EyeOff } from 'lucide-react-native';
 import { ThemedText } from '@/components/ThemedText';
@@ -1071,13 +1577,12 @@ import axios from 'axios';
 import { useAuth } from './auth';
 
 export default function LoginScreen() {
-  const [email, setEmail] = useState(''); // Changed to email
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const { login } = useAuth();
-
-  const backendUrl = 'http://192.168.1.224:5002/api'; 
+  const backendUrl = 'http://192.168.1.224:5002/api';
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -1088,19 +1593,25 @@ export default function LoginScreen() {
     setIsLoading(true);
     try {
       const response = await axios.post(`${backendUrl}/auth/login`, {
-        email, 
+        email,
         password,
       });
 
       const { token } = response.data;
+      console.log('Login Token:', token); // Debug: Verify token
       await login(token); // Store token and set isLoggedIn
+      console.log('Login Successful, redirecting to dashboard...');
       Alert.alert('Success', 'Logged in successfully!');
     } catch (error: any) {
       let errorMessage = 'Login failed. Please check your credentials.';
       if (error.response) {
         errorMessage = error.response.data.message || errorMessage;
+        console.log('Login Error Response:', error.response.data); // Debug
       } else if (error.request) {
         errorMessage = 'Network error. Please check your connection or IP address.';
+        console.log('Login Network Error:', error.request); // Debug
+      } else {
+        console.log('Login Error:', error.message); // Debug
       }
       Alert.alert('Error', errorMessage);
     } finally {
@@ -1117,7 +1628,7 @@ export default function LoginScreen() {
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         <ThemedView style={styles.formContainer}>
           <View style={styles.inputContainer}>
-            <ThemedText style={styles.label}>Email</ThemedText> {/* Changed to Email */}
+            <ThemedText style={styles.label}>Email</ThemedText>
             <View style={styles.inputWrapper}>
               <User size={20} color="#666" style={styles.inputIcon} />
               <TextInput
@@ -1126,6 +1637,7 @@ export default function LoginScreen() {
                 onChangeText={setEmail}
                 autoCapitalize="none"
                 style={styles.input}
+                keyboardType="email-address" // Better UX for email input
               />
             </View>
           </View>
@@ -1156,9 +1668,11 @@ export default function LoginScreen() {
             style={[styles.loginButton, isLoading && styles.loginButtonDisabled]}
             disabled={isLoading}
           >
-            <ThemedText style={styles.loginButtonText}>
-              {isLoading ? 'Signing in...' : 'Sign In'}
-            </ThemedText>
+            {isLoading ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <ThemedText style={styles.loginButtonText}>Sign In</ThemedText>
+            )}
           </TouchableOpacity>
         </ThemedView>
       </ScrollView>
@@ -1249,21 +1763,27 @@ const styles = StyleSheet.create({
 frontend/app/type.ts:
 
 contents:
+// type.ts
 export interface Appointment {
-    _id?: string; // Optional MongoDB ID
-    doctorName: string;
-    specialty: string; // Corrected from "speciality" to match backend
-    date: string; // Assuming ISO string from backend
-    time: string;
-  }
-  
-  export interface Profile {
-    _id?: string;
-    name?: string;
-    email: string;
-    age?: number;
-    phone?: string;
-    address?: string;
-    imageUrl?: string;
-  }
+  _id?: string;
+  hospitalId: string;
+  doctorId: string;
+  doctorName: string;
+  specialty: string;
+  date: string;
+  time: string;
+  status: 'pending' | 'approved' | 'rejected';
+  userEmail?: string;
+  createdAt?: Date;
+}
+
+export interface Profile {
+  _id?: string;
+  name?: string;
+  email: string;
+  age?: number;
+  phone?: string;
+  address?: string;
+  imageUrl?: string;
+}
 
