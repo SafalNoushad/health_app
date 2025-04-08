@@ -66,6 +66,8 @@ const doctorRoutes = require('./routes/doctor.routes');
 const healthRoutes = require('./routes/health.routes');
 const chatbotRoutes = require('./routes/chatbot.routes');
 const rfidRoutes = require('./routes/rfid.routes');
+const prescriptionRoutes = require('./routes/prescription.routes');
+const consultationRoutes = require('./routes/consultation.routes');
 
 // Serve static files from uploads directory
 app.use('/uploads', express.static('uploads'));
@@ -80,6 +82,8 @@ app.use('/api/doctors', doctorRoutes);
 app.use('/api/health', healthRoutes);
 app.use('/api/chatbot', chatbotRoutes);
 app.use('/api/rfid', rfidRoutes);
+app.use('/api/prescriptions', prescriptionRoutes);
+app.use('/api/consultations', consultationRoutes);
 
 // Root route
 app.get('/', (req, res) => {

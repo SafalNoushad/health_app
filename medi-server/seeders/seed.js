@@ -9,6 +9,8 @@ const Hospital = require('../models/hospital.model');
 const Appointment = require('../models/appointment.model');
 const HealthCondition = require('../models/health.model');
 const RFID = require('../models/rfid.model');
+const Prescription = require('../models/prescription.model');
+const Consultation = require('../models/consultation.model');
 
 // Load environment variables
 dotenv.config();
@@ -176,6 +178,198 @@ async function seedAppointments(doctors, patients, hospitals) {
     return appointments;
   } catch (error) {
     console.error('Error seeding appointments:', error.message);
+    throw error;
+  }
+}
+
+// Function to seed prescriptions
+async function seedPrescriptions(doctors, patients) {
+  try {
+    await Prescription.deleteMany({});
+    console.log('Deleted existing prescriptions');
+
+    const prescriptions = [];
+    const medicines = [
+      {
+        name: 'Amoxicillin',
+        quantity: '500mg',
+        intakeTime: ['morning', 'night'],
+        duration: '7 days',
+        instructions: 'Take with food'
+      },
+      {
+        name: 'Metformin',
+        quantity: '1000mg',
+        intakeTime: ['morning', 'evening'],
+        duration: '30 days',
+        instructions: 'Take with meals'
+      },
+      {
+        name: 'Lisinopril',
+        quantity: '10mg',
+        intakeTime: ['morning'],
+        duration: '30 days',
+        instructions: 'Take on empty stomach'
+      },
+      {
+        name: 'Omeprazole',
+        quantity: '20mg',
+        intakeTime: ['morning'],
+        duration: '14 days',
+        instructions: 'Take 30 minutes before breakfast'
+      },
+      {
+        name: 'Atorvastatin',
+        quantity: '40mg',
+        intakeTime: ['night'],
+        duration: '30 days',
+        instructions: 'Take at bedtime'
+      },
+      {
+        name: 'Levothyroxine',
+        quantity: '50mcg',
+        intakeTime: ['morning'],
+        duration: '30 days',
+        instructions: 'Take on empty stomach, 30 minutes before breakfast'
+      },
+      {
+        name: 'Amlodipine',
+        quantity: '5mg',
+        intakeTime: ['morning'],
+        duration: '30 days',
+        instructions: 'Take with or without food'
+      },
+      {
+        name: 'Metformin',
+        quantity: '1000mg',
+        intakeTime: ['morning', 'evening'],
+        duration: '30 days',
+        instructions: 'Take with meals'
+      },
+      {
+        name: 'Lisinopril',
+        quantity: '10mg',
+        intakeTime: ['morning'],
+        duration: '30 days',
+        instructions: 'Take on empty stomach'
+      },
+      {
+        name: 'Omeprazole',
+        quantity: '20mg',
+        intakeTime: ['morning'],
+        duration: '14 days',
+        instructions: 'Take 30 minutes before breakfast'
+      },
+      {
+        name: 'Atorvastatin',
+        quantity: '40mg',
+        intakeTime: ['night'],
+        duration: '30 days',
+        instructions: 'Take at bedtime'
+      },
+      {
+        name: 'Paracetamol',
+        quantity: '650mg',
+        intakeTime: ['morning', 'afternoon', 'night'],
+        duration: '5 days',
+        instructions: 'Take as needed for fever'
+      },
+      {
+        name: 'Omeprazole',
+        quantity: '20mg',
+        intakeTime: ['morning', 'before_meal'],
+        duration: '14 days',
+        instructions: 'Take on empty stomach'
+      },
+      {
+        name: 'Metformin',
+        quantity: '850mg',
+        intakeTime: ['morning', 'evening', 'after_meal'],
+        duration: '30 days',
+        instructions: 'Take with meals'
+      }
+    ];
+
+    for (const patient of patients) {
+      const doctorIndex = Math.floor(Math.random() * doctors.length);
+      const doctor = doctors[doctorIndex];
+      
+      const numMedicines = Math.floor(Math.random() * 3) + 1;
+      const selectedMedicines = [];
+      
+      for (let i = 0; i < numMedicines; i++) {
+        const medicineIndex = Math.floor(Math.random() * medicines.length);
+        selectedMedicines.push(medicines[medicineIndex]);
+      }
+
+      const prescription = new Prescription({
+        patientId: patient._id,
+        doctorId: doctor._id,
+        medicines: selectedMedicines,
+        notes: `Follow up in 2 weeks. Contact if symptoms persist.`
+      });
+
+      await prescription.save();
+      prescriptions.push(prescription);
+    }
+
+    console.log(`Seeded ${prescriptions.length} prescriptions`);
+    return prescriptions;
+  } catch (error) {
+    console.error('Error seeding prescriptions:', error.message);
+    throw error;
+  }
+}
+
+// Function to seed consultations
+async function seedConsultations(doctors, patients) {
+  try {
+    await Consultation.deleteMany({});
+    console.log('Deleted existing consultations');
+
+    const consultations = [];
+    const notes = [
+      'Patient reported improvement in blood pressure control. Continue current medication regimen.',
+      'Diabetes well-managed with current medications. Advised on diet and exercise plan.',
+      'Thyroid function tests normal. Maintain current dose of medication.',
+      'Discussed lifestyle modifications for better cholesterol management.',
+      'Reviewed recent lab results. Adjusted medication dosage.',
+      'Patient experiencing good response to treatment. Continue monitoring.',
+      'Recommended specialist consultation for detailed evaluation.',
+      'Discussed potential side effects and medication compliance.',
+      'Advised on stress management techniques and sleep hygiene.',
+      'Scheduled follow-up tests to monitor treatment progress.'
+    ];
+
+    for (const patient of patients) {
+      const doctorIndex = Math.floor(Math.random() * doctors.length);
+      const doctor = doctors[doctorIndex];
+
+      const consultation = new Consultation({
+        patientId: patient._id,
+        doctorId: doctor._id,
+        status: Math.random() > 0.2 ? 'active' : 'inactive',
+        lastConsultationDate: new Date(),
+        consultationHistory: [
+          {
+            date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+            notes: notes[Math.floor(Math.random() * notes.length)]
+          },
+          {
+            date: new Date(),
+            notes: notes[Math.floor(Math.random() * notes.length)]
+          }
+        ]
+      });
+
+      await consultation.save();
+      consultations.push(consultation);
+    }
+
+    console.log(`Seeded ${consultations.length} consultations`);
+    return consultations;
+  } catch (error) {
+    console.error('Error seeding consultations:', error.message);
     throw error;
   }
 }
@@ -410,6 +604,8 @@ async function seedDatabase() {
     const healthConditions = await seedHealthConditions(patients);
     const rfidCards = await seedRFIDCards(patients, admin);
     const conversations = await seedConversations(patients);
+    const prescriptions = await seedPrescriptions(doctors, patients);
+    const consultations = await seedConsultations(doctors, patients);
     
     console.log('Database seeding completed successfully!');
     process.exit(0);
@@ -470,6 +666,28 @@ if (args.length === 0 || args[0] === '--all') {
           console.log('No patients or admin found. Please seed users first or use --all');
         } else {
           await seedRFIDCards(patients, admin);
+        }
+      }
+
+      if (args.includes('--prescriptions')) {
+        const doctors = await User.find({ role: 'doctor' });
+        const patients = await User.find({ role: 'patient' });
+        
+        if (doctors.length === 0 || patients.length === 0) {
+          console.log('No doctors or patients found. Please seed users first or use --all');
+        } else {
+          await seedPrescriptions(doctors, patients);
+        }
+      }
+
+      if (args.includes('--consultations')) {
+        const doctors = await User.find({ role: 'doctor' });
+        const patients = await User.find({ role: 'patient' });
+        
+        if (doctors.length === 0 || patients.length === 0) {
+          console.log('No doctors or patients found. Please seed users first or use --all');
+        } else {
+          await seedConsultations(doctors, patients);
         }
       }
       
