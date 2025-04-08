@@ -8,6 +8,7 @@ const User = require('../models/user.model');
 const Hospital = require('../models/hospital.model');
 const Appointment = require('../models/appointment.model');
 const HealthCondition = require('../models/health.model');
+const RFID = require('../models/rfid.model');
 
 // Load environment variables
 dotenv.config();
@@ -55,11 +56,9 @@ const specialities = [
 // Function to seed hospitals
 async function seedHospitals() {
   try {
-    // Clear existing data
     await Hospital.deleteMany({});
     console.log('Deleted existing hospitals');
     
-    // Insert new data
     const createdHospitals = await Hospital.insertMany(hospitals);
     console.log(`Seeded ${createdHospitals.length} hospitals`);
     return createdHospitals;
@@ -72,11 +71,9 @@ async function seedHospitals() {
 // Function to seed users
 async function seedUsers(hospitals) {
   try {
-    // Clear existing data
     await User.deleteMany({});
     console.log('Deleted existing users');
     
-    // Create admin user
     const admin = new User({
       name: 'Admin User',
       email: 'admin@example.com',
@@ -88,7 +85,6 @@ async function seedUsers(hospitals) {
     await admin.save();
     console.log('Seeded admin user');
     
-    // Create doctors (3 per hospital with different specialities)
     const doctors = [];
     for (const hospital of hospitals) {
       for (let i = 0; i < 3; i++) {
@@ -96,7 +92,7 @@ async function seedUsers(hospitals) {
         const doctor = new User({
           name: `Dr. ${specialities[specialityIndex].substring(0, 3)} ${i + 1}`,
           email: `doctor${doctors.length + 1}@example.com`,
-          password: 'password123',
+          password:  'password123',
           role: 'doctor',
           phone: `555-${100 + doctors.length}`,
           address: `${hospital.address.split(',')[0]}, Suite ${100 + i}`,
@@ -109,7 +105,6 @@ async function seedUsers(hospitals) {
     }
     console.log(`Seeded ${doctors.length} doctors`);
     
-    // Create patients
     const patients = [];
     for (let i = 0; i < 10; i++) {
       const patient = new User({
@@ -135,7 +130,6 @@ async function seedUsers(hospitals) {
 // Function to seed appointments
 async function seedAppointments(doctors, patients, hospitals) {
   try {
-    // Clear existing data
     await Appointment.deleteMany({});
     console.log('Deleted existing appointments');
     
@@ -143,21 +137,20 @@ async function seedAppointments(doctors, patients, hospitals) {
     const statuses = ['pending', 'approved', 'completed', 'rejected', 'rescheduled'];
     const today = new Date();
     
-    // Create 2 appointments per patient with random doctors
     for (const patient of patients) {
       for (let i = 0; i < 2; i++) {
         const doctorIndex = Math.floor(Math.random() * doctors.length);
         const doctor = doctors[doctorIndex];
         const hospital = hospitals.find(h => h._id.toString() === doctor.hospitalId.toString());
         
-        // Generate a date within the next 30 days
+        if (!hospital) continue;
+        
         const appointmentDate = new Date(today);
         appointmentDate.setDate(today.getDate() + Math.floor(Math.random() * 30));
-        const formattedDate = appointmentDate.toISOString().split('T')[0]; // YYYY-MM-DD
+        const formattedDate = appointmentDate.toISOString().split('T')[0];
         
-        // Generate a random time between 9 AM and 5 PM
         const hour = 9 + Math.floor(Math.random() * 8);
-        const minute = Math.floor(Math.random() * 4) * 15; // 0, 15, 30, or 45
+        const minute = Math.floor(Math.random() * 4) * 15;
         const formattedTime = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
         
         const statusIndex = Math.floor(Math.random() * statuses.length);
@@ -190,11 +183,9 @@ async function seedAppointments(doctors, patients, hospitals) {
 // Function to seed health conditions
 async function seedHealthConditions(patients) {
   try {
-    // Clear existing data
     await HealthCondition.deleteMany({});
     console.log('Deleted existing health conditions');
     
-    // Ensure uploads directory exists
     const uploadDir = path.join(__dirname, '../uploads');
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
@@ -212,42 +203,36 @@ async function seedHealthConditions(patients) {
       'Medical History'
     ];
     
-    // Create health conditions for each patient
     for (const patient of patients) {
-      // Randomly assign 0-3 health conditions to each patient
       const patientConditions = {};
-      const numConditions = Math.floor(Math.random() * 4); // 0 to 3 conditions
+      const numConditions = Math.floor(Math.random() * 4);
       
-      // Shuffle conditions array to pick random conditions
       const shuffledConditions = [...conditions].sort(() => 0.5 - Math.random());
       
-      // Set selected conditions to true
       for (let i = 0; i < numConditions; i++) {
         patientConditions[shuffledConditions[i]] = true;
       }
       
-      // Create 0-2 sample document entries (without actually creating files)
       const documents = [];
-      const numDocuments = Math.floor(Math.random() * 3); // 0 to 2 documents
+      const numDocuments = Math.floor(Math.random() * 3);
       
       for (let i = 0; i < numDocuments; i++) {
-        const timestamp = Date.now() - Math.floor(Math.random() * 30 * 24 * 60 * 60 * 1000); // Random date within last 30 days
+        const timestamp = Date.now() - Math.floor(Math.random() * 30 * 24 * 60 * 60 * 1000);
         const filename = `${timestamp}-Sample_Medical_Document_${i+1}.pdf`;
         const descIndex = Math.floor(Math.random() * documentDescriptions.length);
         
         documents.push({
-          filename: filename,
+          filename,
           path: `uploads/${filename}`,
           uploadDate: new Date(timestamp),
           description: documentDescriptions[descIndex]
         });
       }
       
-      // Create health condition record
       const healthCondition = new HealthCondition({
         userId: patient._id,
         ...patientConditions,
-        documents: documents
+        documents
       });
       
       await healthCondition.save();
@@ -262,18 +247,169 @@ async function seedHealthConditions(patients) {
   }
 }
 
-// Main seeding function
+// Function to seed RFID cards
+async function seedRFIDCards(patients, admin) {
+  try {
+    await RFID.deleteMany({});
+    console.log('Deleted existing RFID cards');
+    
+    const rfidCards = [];
+    
+    // Assign RFID cards to half of the patients
+    const patientsToAssign = patients.slice(0, Math.ceil(patients.length / 2));
+    
+    for (const [index, patient] of patientsToAssign.entries()) {
+      // Generate a unique RFID number (for testing purposes)
+      const rfidNumber = `RFID-${100000 + index}`;
+      
+      const rfidCard = new RFID({
+        rfidNumber,
+        userId: patient._id,
+        isActive: true,
+        assignedBy: admin._id
+      });
+      
+      await rfidCard.save();
+      rfidCards.push(rfidCard);
+    }
+    
+    console.log(`Seeded ${rfidCards.length} RFID cards`);
+    return rfidCards;
+  } catch (error) {
+    console.error('Error seeding RFID cards:', error.message);
+    throw error;
+  }
+}
+
+// Function to seed conversations
+async function seedConversations(patients) {
+  try {
+    const Conversation = require('../models/conversation.model');
+    
+    await Conversation.deleteMany({});
+    console.log('Deleted existing conversations');
+    
+    const conversations = [];
+    
+    const sampleConversations = [
+      {
+        title: 'Headache Symptoms',
+        messages: [
+          {
+            role: 'user',
+            content: 'I\'ve been having frequent headaches for the past week. What could be causing this?'
+          },
+          {
+            role: 'assistant',
+            content: 'I\'m sorry to hear you\'ve been experiencing headaches. There are many possible causes including stress, dehydration, lack of sleep, eye strain, or tension. If your headaches are severe, sudden, or accompanied by other symptoms like fever, confusion, or stiff neck, you should seek immediate medical attention. Would you like to tell me more about your symptoms?'
+          },
+          {
+            role: 'user',
+            content: 'The pain is usually on one side of my head and gets worse with bright lights.'
+          },
+          {
+            role: 'assistant',
+            content: 'Those symptoms could be consistent with migraine headaches. Migraines often cause pain on one side of the head and sensitivity to light and sound. I recommend consulting with your doctor who can provide a proper diagnosis and treatment plan. In the meantime, resting in a dark, quiet room and staying hydrated may help. Would you like me to help you schedule an appointment with a neurologist?'
+          }
+        ]
+      },
+      {
+        title: 'Diet Recommendations',
+        messages: [
+          {
+            role: 'user',
+            content: 'I was recently diagnosed with type 2 diabetes. What foods should I avoid?'
+          },
+          {
+            role: 'assistant',
+            content: 'With type 2 diabetes, it\'s important to manage your carbohydrate intake and choose foods with a low glycemic index. Foods to limit include: sugary drinks, refined carbohydrates (white bread, pasta, rice), processed snacks, sweetened cereals, and high-sugar fruits. Instead, focus on vegetables, whole grains, lean proteins, healthy fats, and moderate amounts of low-glycemic fruits. Would you like some specific meal suggestions?'
+          },
+          {
+            role: 'user',
+            content: 'Yes, what would be a good breakfast option?'
+          },
+          {
+            role: 'assistant',
+            content: 'Great question! Some diabetes-friendly breakfast options include: Greek yogurt with berries and a sprinkle of nuts; a vegetable omelet with a slice of whole grain toast; overnight oats made with steel-cut oats, chia seeds, and cinnamon; or a protein smoothie with spinach, unsweetened almond milk, and a small amount of berries. Remember to monitor your blood sugar to see how different foods affect you personally.'
+          }
+        ]
+      },
+      {
+        title: 'Blood Pressure Concerns',
+        messages: [
+          {
+            role: 'user',
+            content: 'My blood pressure reading was 145/95. Is that concerning?'
+          },
+          {
+            role: 'assistant',
+            content: 'A blood pressure reading of 145/95 is considered stage 2 hypertension (high blood pressure). Normal blood pressure is typically around 120/80 or lower. Consistently elevated blood pressure can increase your risk of heart disease and stroke. I recommend discussing this with your healthcare provider, who may suggest lifestyle changes or medication. Would you like some tips for naturally lowering blood pressure?'
+          },
+          {
+            role: 'user',
+            content: 'Yes, what lifestyle changes can help lower blood pressure?'
+          },
+          {
+            role: 'assistant',
+            content: 'Several lifestyle changes can help lower blood pressure: 1) Reduce sodium intake (aim for less than 2,300mg daily), 2) Follow the DASH diet (rich in fruits, vegetables, whole grains, and low-fat dairy), 3) Regular physical activity (aim for 150 minutes per week), 4) Maintain a healthy weight, 5) Limit alcohol consumption, 6) Quit smoking, 7) Manage stress through meditation, deep breathing, or yoga, 8) Ensure adequate sleep. It\'s important to monitor your blood pressure regularly and continue working with your healthcare provider.'
+          }
+        ]
+      }
+    ];
+    
+    for (const patient of patients) {
+      const numConversations = Math.floor(Math.random() * 3) + 1;
+      
+      for (let i = 0; i < numConversations; i++) {
+        const templateIndex = Math.floor(Math.random() * sampleConversations.length);
+        const template = sampleConversations[templateIndex];
+        
+        const baseTime = new Date();
+        baseTime.setDate(baseTime.getDate() - Math.floor(Math.random() * 30));
+        
+        const messages = template.messages.map((msg, index) => {
+          const msgTime = new Date(baseTime);
+          msgTime.setMinutes(baseTime.getMinutes() + (index * 2));
+          
+          return {
+            role: msg.role,
+            content: msg.content,
+            timestamp: msgTime
+          };
+        });
+        
+        const conversation = new Conversation({
+          userId: patient._id,
+          title: template.title,
+          messages,
+          createdAt: messages[0].timestamp,
+          updatedAt: messages[messages.length - 1].timestamp
+        });
+        
+        await conversation.save();
+        conversations.push(conversation);
+      }
+    }
+    
+    console.log(`Seeded ${conversations.length} conversations`);
+    return conversations;
+  } catch (error) {
+    console.error('Error seeding conversations:', error.message);
+    throw error;
+  }
+}
+
 async function seedDatabase() {
   try {
-    // Connect to the database
     await connectDB();
     console.log('Connected to the database');
     
-    // Seed data in sequence (to maintain relationships)
     const seededHospitals = await seedHospitals();
     const { admin, doctors, patients } = await seedUsers(seededHospitals);
     const appointments = await seedAppointments(doctors, patients, seededHospitals);
     const healthConditions = await seedHealthConditions(patients);
+    const rfidCards = await seedRFIDCards(patients, admin);
+    const conversations = await seedConversations(patients);
     
     console.log('Database seeding completed successfully!');
     process.exit(0);
@@ -283,13 +419,10 @@ async function seedDatabase() {
   }
 }
 
-// Parse command line arguments
 const args = process.argv.slice(2);
 if (args.length === 0 || args[0] === '--all') {
-  // Seed all collections
   seedDatabase();
 } else {
-  // Connect to database first
   connectDB().then(async () => {
     console.log('Connected to the database');
     
@@ -326,6 +459,17 @@ if (args.length === 0 || args[0] === '--all') {
           console.log('No patients found. Please seed users first or use --all');
         } else {
           await seedHealthConditions(patients);
+        }
+      }
+      
+      if (args.includes('--rfid')) {
+        const patients = await User.find({ role: 'patient' });
+        const admin = await User.findOne({ role: 'admin' });
+        
+        if (patients.length === 0 || !admin) {
+          console.log('No patients or admin found. Please seed users first or use --all');
+        } else {
+          await seedRFIDCards(patients, admin);
         }
       }
       

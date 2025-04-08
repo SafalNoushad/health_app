@@ -350,8 +350,15 @@ async function processChatbotMessage(req, res, message, conversationId) {
     let conversation;
     let previousMessages = [];
     
-    // If conversationId is provided, retrieve the conversation
-    if (conversationId && mongoose.Types.ObjectId.isValid(conversationId)) {
+    // If conversationId is provided and valid, retrieve the conversation
+    if (conversationId) {
+      if (!mongoose.Types.ObjectId.isValid(conversationId)) {
+        return {
+          success: false,
+          message: 'Invalid conversation ID format'
+        };
+      }
+      
       conversation = await Conversation.findOne({ 
         _id: conversationId,
         userId: req.user._id,
@@ -364,6 +371,17 @@ async function processChatbotMessage(req, res, message, conversationId) {
           .slice(-10)
           .map(msg => ({ role: msg.role, content: msg.content }));
       }
+    }
+    
+    // Create a new conversation if none exists
+    if (!conversation) {
+      conversation = new Conversation({
+        userId: req.user._id,
+        title: message.substring(0, 50) + (message.length > 50 ? '...' : ''),
+        messages: [],
+        isActive: true
+      });
+      await conversation.save();
     }
     
     // Prepare conversation history
