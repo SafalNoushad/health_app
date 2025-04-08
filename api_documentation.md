@@ -11,6 +11,7 @@ This document provides comprehensive information about all API endpoints availab
 5. [Appointments](#appointments)
 6. [Health Conditions](#health-conditions)
 7. [Chatbot](#chatbot)
+8. [RFID Cards](#rfid-cards)
 
 ## Authentication
 
@@ -806,6 +807,202 @@ Common HTTP status codes:
 - `404`: Resource not found
 - `500`: Server error
 
+## RFID Cards
+
+Endpoints for managing RFID cards assigned to patients.
+
+### Assign RFID Card to Patient
+
+- **URL**: `/api/rfid/assign`
+- **Method**: `POST`
+- **Authentication**: Required (Admin or Doctor only)
+- **Description**: Assign an RFID card to a patient
+- **Request Body**:
+  ```json
+  {
+    "rfidNumber": "RFID-100001",
+    "userId": "60d21b4667d0d8992e610c86"
+  }
+  ```
+- **Response (201)**:
+  ```json
+  {
+    "success": true,
+    "message": "RFID card assigned successfully",
+    "rfid": {
+      "_id": "60d21b4667d0d8992e610c87",
+      "rfidNumber": "RFID-100001",
+      "userId": "60d21b4667d0d8992e610c86",
+      "isActive": true,
+      "assignedBy": "60d21b4667d0d8992e610c85",
+      "createdAt": "2023-06-22T15:30:45.123Z",
+      "updatedAt": "2023-06-22T15:30:45.123Z"
+    }
+  }
+  ```
+- **Error Responses**:
+  - `400`: Invalid input or RFID already assigned
+  - `401`: Not authenticated
+  - `403`: Not authorized (not admin or doctor)
+  - `404`: User not found
+  - `500`: Server error
+
+### Get User by RFID Number
+
+- **URL**: `/api/rfid/user/:rfidNumber`
+- **Method**: `GET`
+- **Authentication**: Required
+- **Description**: Get user details associated with an RFID card
+- **URL Parameters**: `rfidNumber` - RFID card number
+- **Response (200)**:
+  ```json
+  {
+    "success": true,
+    "user": {
+      "_id": "60d21b4667d0d8992e610c86",
+      "name": "John Doe",
+      "email": "john@example.com",
+      "role": "patient",
+      "phone": "1234567890",
+      "address": "123 Main St"
+    }
+  }
+  ```
+- **Error Responses**:
+  - `401`: Not authenticated
+  - `404`: RFID card or user not found
+  - `500`: Server error
+
+### Get All RFID Assignments
+
+- **URL**: `/api/rfid`
+- **Method**: `GET`
+- **Authentication**: Required (Admin only)
+- **Description**: Get a list of all RFID card assignments
+- **Response (200)**:
+  ```json
+  {
+    "success": true,
+    "rfids": [
+      {
+        "_id": "60d21b4667d0d8992e610c87",
+        "rfidNumber": "RFID-100001",
+        "userId": {
+          "_id": "60d21b4667d0d8992e610c86",
+          "name": "John Doe",
+          "email": "john@example.com"
+        },
+        "isActive": true,
+        "assignedBy": {
+          "_id": "60d21b4667d0d8992e610c85",
+          "name": "Admin User",
+          "email": "admin@example.com"
+        },
+        "createdAt": "2023-06-22T15:30:45.123Z",
+        "updatedAt": "2023-06-22T15:30:45.123Z"
+      },
+      // More RFID assignments...
+    ]
+  }
+  ```
+- **Error Responses**:
+  - `401`: Not authenticated
+  - `403`: Not authorized (not admin)
+  - `500`: Server error
+
+### Get RFID Assignment by ID
+
+- **URL**: `/api/rfid/:id`
+- **Method**: `GET`
+- **Authentication**: Required
+- **Description**: Get details of a specific RFID assignment
+- **URL Parameters**: `id` - RFID assignment ID
+- **Response (200)**:
+  ```json
+  {
+    "success": true,
+    "rfid": {
+      "_id": "60d21b4667d0d8992e610c87",
+      "rfidNumber": "RFID-100001",
+      "userId": {
+        "_id": "60d21b4667d0d8992e610c86",
+        "name": "John Doe",
+        "email": "john@example.com"
+      },
+      "isActive": true,
+      "assignedBy": {
+        "_id": "60d21b4667d0d8992e610c85",
+        "name": "Admin User",
+        "email": "admin@example.com"
+      },
+      "createdAt": "2023-06-22T15:30:45.123Z",
+      "updatedAt": "2023-06-22T15:30:45.123Z"
+    }
+  }
+  ```
+- **Error Responses**:
+  - `401`: Not authenticated
+  - `404`: RFID assignment not found
+  - `500`: Server error
+
+### Update RFID Assignment
+
+- **URL**: `/api/rfid/:id`
+- **Method**: `PUT`
+- **Authentication**: Required (Admin or Doctor only)
+- **Description**: Update an RFID assignment
+- **URL Parameters**: `id` - RFID assignment ID
+- **Request Body**:
+  ```json
+  {
+    "rfidNumber": "RFID-100002",
+    "userId": "60d21b4667d0d8992e610c88",
+    "isActive": false
+  }
+  ```
+- **Response (200)**:
+  ```json
+  {
+    "success": true,
+    "message": "RFID assignment updated successfully",
+    "rfid": {
+      "_id": "60d21b4667d0d8992e610c87",
+      "rfidNumber": "RFID-100002",
+      "userId": "60d21b4667d0d8992e610c88",
+      "isActive": false,
+      "assignedBy": "60d21b4667d0d8992e610c85",
+      "createdAt": "2023-06-22T15:30:45.123Z",
+      "updatedAt": "2023-06-22T16:45:12.456Z"
+    }
+  }
+  ```
+- **Error Responses**:
+  - `400`: Invalid input or RFID number already in use
+  - `401`: Not authenticated
+  - `403`: Not authorized (not admin or doctor)
+  - `404`: RFID assignment or user not found
+  - `500`: Server error
+
+### Delete RFID Assignment
+
+- **URL**: `/api/rfid/:id`
+- **Method**: `DELETE`
+- **Authentication**: Required (Admin only)
+- **Description**: Delete an RFID assignment
+- **URL Parameters**: `id` - RFID assignment ID
+- **Response (200)**:
+  ```json
+  {
+    "success": true,
+    "message": "RFID assignment deleted successfully"
+  }
+  ```
+- **Error Responses**:
+  - `401`: Not authenticated
+  - `403`: Not authorized (not admin)
+  - `404`: RFID assignment not found
+  - `500`: Server error
+
 ## Rate Limiting
 
 API requests are subject to rate limiting to prevent abuse. Excessive requests may result in temporary blocking.
@@ -820,6 +1017,7 @@ The API uses the following main data models:
 - **HealthCondition**: Represents patient health conditions and medical history
 - **Document**: Represents uploaded medical documents
 - **Conversation**: Represents chat conversations between users and the health assistant chatbot
+- **RFID**: Represents RFID cards assigned to patients
 
 ## API Versioning
 
